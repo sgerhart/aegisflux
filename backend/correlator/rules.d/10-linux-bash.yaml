@@ -1,0 +1,39 @@
+# AegisFlux Correlator - Linux Bash Execution Rule
+# Detects bash execution after network connections on web servers
+
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "R-BASH-EXEC-AFTER-CONNECT"
+  name: "Shell exec within 5s after connect"
+  version: "1.0.0"
+spec:
+  enabled: true
+  selectors:
+    host_ids: []
+    host_globs: ["web-*"]
+    labels: ["role:web", "env:prod"]
+    exclude_host_ids: []
+  
+  condition:
+    window_seconds: 5
+    when:
+      event_types: ["exec"]
+      binary_path_regex: "(^|/)(bash|sh|/bin/sh)$"
+    
+    requires_prior:
+      event_types: ["connect"]
+      within_seconds: 5
+  
+  outcome:
+    severity: "critical"
+    confidence: 0.95
+    evidence:
+      - "Bash execution after network connection"
+      - "Bash execution {binary_path} on web server {host_id} after connecting to {dst_ip}:{dst_port}"
+  
+  dedupe:
+    key_template: "bash-after-connect-{host_id}-{dst_ip}-{dst_port}"
+    cooldown_seconds: 5
+  
+  ttl_seconds: 3600

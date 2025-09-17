@@ -1,0 +1,40 @@
+# AegisFlux Correlator - Default Rules
+# Global rules that apply to all hosts
+
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "bash-exec-after-connect"
+  name: "Bash Execution After Network Connection"
+  version: "1.0"
+spec:
+  enabled: true
+  selectors:
+    # Global rule - applies to all hosts
+    host_ids: []
+    host_globs: []
+    labels: []
+    exclude_host_ids: []
+  
+  condition:
+    window_seconds: 5
+    when:
+      event_types: ["exec", "connect"]
+      binary_path_regex: ".*bash.*|.*sh.*"
+    
+    requires_prior:
+      event_types: ["connect"]
+      within_seconds: 5
+  
+  outcome:
+    severity: "high"
+    confidence: 0.8
+    evidence:
+      - "Bash execution detected within 5 seconds of network connection"
+      - "Executable {binary_path} executed on {host_id} after connecting to {dst_ip}:{dst_port}"
+  
+  dedupe:
+    key_template: "bash-after-connect-{host_id}-{dst_ip}"
+    cooldown_seconds: 300
+  
+  ttl_seconds: 3600

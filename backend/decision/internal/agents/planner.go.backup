@@ -1,0 +1,368 @@
+package agents
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+
+	"aegisflux/backend/decision/internal/model"
+)
+
+// PlannerAgent handles plan creation from security findings
+type PlannerAgent struct {
+	runtime *Runtime
+	logger  *slog.Logger
+}
+
+// NewPlannerAgent creates a new planner agent
+func NewPlannerAgent(runtime *Runtime, logger *slog.Logger) *PlannerAgent {
+	return &PlannerAgent{
+		runtime: runtime,
+		logger:  logger,
+	}
+}
+
+// PlanDraft represents a draft plan created by the planner
+type PlanDraft struct {
+	Targets         []string                 `json:"targets"`
+	ControlIntents  []map[string]any         `json:"control_intents"`
+	DesiredMode     model.StrategyMode       `json:"desired_mode"`
+	SuccessCriteria []model.SuccessCriteria  `json:"success_criteria"`
+	Notes           string                   `json:"notes"`
+}
+
+// BuildPlanDraft creates a plan draft from a security finding
+func (p *PlannerAgent) BuildPlanDraft(ctx context.Context, finding map[string]any) (*PlanDraft, error) {
+	p.logger.Info("Building plan draft", "finding_id", finding["id"], "severity", finding["severity"])
+
+	// For MVP, use fallback implementation to avoid LLM runtime issues
+	p.logger.Info("Using fallback planner implementation for MVP")
+	fallbackDraft := p.createFallbackDraft(finding)
+	
+	// Validate and apply fallbacks
+	draft := p.validateAndFallback(fallbackDraft, finding)
+
+	p.logger.Info("Plan draft created successfully", 
+		"targets", len(draft.Targets),
+		"control_intents", len(draft.ControlIntents),
+		"desired_mode", draft.DesiredMode)
+
+	return &draft, nil
+}
+
+// loadSystemPrompt loads the system prompt from file
+func (p *PlannerAgent) loadSystemPrompt() (string, error) {
+	if err != nil {
+		return nil, fmt.Errorf("failed to load system prompt: %w", err)
+	}
+
+	// Create compact finding summary
+	findingSummary := p.createFindingSummary(finding)
+
+	// First round: LLM proposes tool calls
+	p.logger.Debug("First round: LLM proposing tool calls")
+	
+	firstPrompt := fmt.Sprintf(`%s
+
+Finding Summary:
+%s
+
+Available tools: graph.query, cve.lookup, risk.context, policy.compile, ebpf.template_suggest
+
+Analyze this finding and propose tool calls to gather additional context. Respond with JSON:
+{
+  "calls": [
+    {"function": "tool_name", "args": {"param": "value"}}
+  ],
+  "draft": null
+}`, systemPrompt, findingSummary)
+
+	// Execute first LLM call
+	firstResponse, err := client.Generate(firstPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("first LLM call failed: %w", err)
+	}
+
+	// Parse first response
+	var firstLLMResponse struct {
+		Calls []ToolCall `json:"calls"`
+		Draft *string    `json:"draft"`
+	}
+	if err := json.Unmarshal([]byte(firstResponse), &firstLLMResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse first LLM response: %w", err)
+	}
+
+	// Execute tool calls if any
+	var toolResults []ToolResult
+	if len(firstLLMResponse.Calls) > 0 {
+		p.logger.Debug("Executing tool calls", "count", len(firstLLMResponse.Calls))
+		
+		executionResult, err := p.runtime.ExecuteAgent(ctx, "planner", firstPrompt, nil)
+		if err != nil {
+			p.logger.Warn("Tool execution failed, proceeding with limited context", "error", err)
+		} else {
+			toolResults = executionResult.ToolResults
+		}
+	}
+
+	// Second round: LLM creates plan draft
+	p.logger.Debug("Second round: LLM creating plan draft")
+	
+	secondPrompt := p.formatSecondPrompt(systemPrompt, findingSummary, toolResults)
+	
+	// Execute second LLM call
+	secondResponse, err := client.Generate(secondPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("second LLM call failed: %w", err)
+	}
+
+	// Parse second response
+	var secondLLMResponse struct {
+		Calls []ToolCall `json:"calls"`
+		Draft *string    `json:"draft"`
+	}
+	if err := json.Unmarshal([]byte(secondResponse), &secondLLMResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse second LLM response: %w", err)
+	}
+
+	// Parse draft if provided
+	var draft PlanDraft
+	if secondLLMResponse.Draft != nil {
+		if err := json.Unmarshal([]byte(*secondLLMResponse.Draft), &draft); err != nil {
+			return nil, fmt.Errorf("failed to parse plan draft: %w", err)
+		}
+	} else {
+		// Fallback draft if LLM didn't provide one
+		draft = p.createFallbackDraft(finding)
+	}
+
+	// Validate and fix draft
+	validatedDraft := p.validateDraft(draft, finding)
+
+	p.logger.Info("Plan draft created successfully", 
+		"targets", len(validatedDraft.Targets),
+		"control_intents", len(validatedDraft.ControlIntents),
+		"mode", validatedDraft.DesiredMode)
+
+	return &validatedDraft, nil
+}
+
+// loadSystemPrompt loads the system prompt from the file
+func (p *PlannerAgent) loadSystemPrompt() (string, error) {
+	promptPath := "llm/system-prompts/planner.md"
+	
+	// Try to read from the file
+	content, err := os.ReadFile(promptPath)
+	if err != nil {
+		// Fallback to embedded prompt if file not found
+		p.logger.Warn("Could not read system prompt file, using fallback", "path", promptPath, "error", err)
+		return p.getFallbackSystemPrompt(), nil
+	}
+	
+	return string(content), nil
+}
+
+// getFallbackSystemPrompt returns a fallback system prompt
+func (p *PlannerAgent) getFallbackSystemPrompt() string {
+	return `You are the AegisFlux Planner. Input: Finding + host/graph + CVE + risk + guardrails. 
+Output: a JSON Plan draft: targets[], control_intents[], strategy{desired_mode}, success_criteria, notes.
+Call ONLY allowed tools: graph.query, cve.lookup, risk.context, policy.compile, ebpf.template_suggest.
+Prefer least-privilege, add TTL, default to suggest/canary if uncertain. Never apply; just plan.`
+}
+
+// createFindingSummary creates a compact summary of the finding
+func (p *PlannerAgent) createFindingSummary(finding map[string]any) string {
+	var parts []string
+	
+	if id, ok := finding["id"].(string); ok {
+		parts = append(parts, fmt.Sprintf("ID: %s", id))
+	}
+	
+	if severity, ok := finding["severity"].(string); ok {
+		parts = append(parts, fmt.Sprintf("Severity: %s", severity))
+	}
+	
+	if hostID, ok := finding["host_id"].(string); ok {
+		parts = append(parts, fmt.Sprintf("Host: %s", hostID))
+	}
+	
+	if ruleID, ok := finding["rule_id"].(string); ok {
+		parts = append(parts, fmt.Sprintf("Rule: %s", ruleID))
+	}
+	
+	if evidence, ok := finding["evidence"].([]string); ok && len(evidence) > 0 {
+		parts = append(parts, fmt.Sprintf("Evidence: %s", evidence[0]))
+	}
+	
+	if confidence, ok := finding["confidence"].(float64); ok {
+		parts = append(parts, fmt.Sprintf("Confidence: %.2f", confidence))
+	}
+	
+	return strings.Join(parts, " | ")
+}
+
+// formatSecondPrompt creates the second round prompt with tool results
+func (p *PlannerAgent) formatSecondPrompt(systemPrompt, findingSummary string, toolResults []ToolResult) string {
+	var builder strings.Builder
+	
+	builder.WriteString(systemPrompt)
+	builder.WriteString("\n\n")
+	builder.WriteString("Finding Summary:\n")
+	builder.WriteString(findingSummary)
+	builder.WriteString("\n\n")
+	
+	if len(toolResults) > 0 {
+		builder.WriteString("Tool Results:\n")
+		for _, result := range toolResults {
+			builder.WriteString(fmt.Sprintf("Tool: %s\n", result.Function))
+			if result.Error != nil {
+				builder.WriteString(fmt.Sprintf("Error: %s\n", *result.Error))
+			} else {
+				resultJSON, _ := json.Marshal(result.Result)
+				builder.WriteString(fmt.Sprintf("Result: %s\n", string(resultJSON)))
+			}
+			builder.WriteString("\n")
+		}
+	}
+	
+	builder.WriteString(`
+Based on the finding and tool results, create a plan draft. Respond with JSON:
+{
+  "calls": [],
+  "draft": {
+    "targets": ["host1", "host2"],
+    "control_intents": [
+      {"action": "block", "target": "malicious_ip", "reason": "suspicious activity", "ttl_seconds": 3600}
+    ],
+    "desired_mode": "balanced",
+    "success_criteria": [
+      {"min_success_rate": 0.9, "max_failure_rate": 0.1, "timeout_seconds": 3600, "required_metrics": ["finding_resolved"]}
+    ],
+    "notes": "Plan notes and reasoning"
+  }
+}
+
+Valid modes: conservative, balanced, aggressive
+Prefer least-privilege approaches and add TTL to controls.`)
+	
+	return builder.String()
+}
+
+// createFallbackDraft creates a fallback draft if LLM fails
+func (p *PlannerAgent) createFallbackDraft(finding map[string]any) PlanDraft {
+	// Extract host_id as target
+	targets := []string{}
+	if hostID, ok := finding["host_id"].(string); ok {
+		targets = append(targets, hostID)
+	}
+	
+	// Create basic control intent based on finding
+	controlIntents := []map[string]any{}
+	if severity, ok := finding["severity"].(string); ok {
+		var action string
+		switch severity {
+		case "critical":
+			action = "block"
+		case "high":
+			action = "suggest"
+		default:
+			action = "observe"
+		}
+		
+		controlIntents = append(controlIntents, map[string]any{
+			"action": action,
+			"target": "finding_host",
+			"reason": fmt.Sprintf("Security finding: %s", severity),
+			"ttl_seconds": 3600,
+		})
+	}
+	
+	// Determine mode based on severity
+	var mode model.StrategyMode
+	if severity, ok := finding["severity"].(string); ok {
+		switch severity {
+		case "critical":
+			mode = model.StrategyModeAggressive
+		case "high":
+			mode = model.StrategyModeBalanced
+		default:
+			mode = model.StrategyModeConservative
+		}
+	} else {
+		mode = model.StrategyModeBalanced
+	}
+	
+	// Create success criteria
+	successCriteria := []model.SuccessCriteria{
+		{
+			MinSuccessRate:  0.9,
+			MaxFailureRate:  0.1,
+			TimeoutSeconds:  3600,
+			RequiredMetrics: []string{"finding_resolved"},
+		},
+	}
+	
+	return PlanDraft{
+		Targets:         targets,
+		ControlIntents:  controlIntents,
+		DesiredMode:     mode,
+		SuccessCriteria: successCriteria,
+		Notes:           "Fallback plan created due to LLM failure",
+	}
+}
+
+// validateDraft validates and fixes the plan draft
+func (p *PlannerAgent) validateDraft(draft PlanDraft, finding map[string]any) PlanDraft {
+	// Ensure targets are non-empty
+	if len(draft.Targets) == 0 {
+		if hostID, ok := finding["host_id"].(string); ok {
+			draft.Targets = []string{hostID}
+		} else {
+			draft.Targets = []string{"unknown"}
+		}
+		p.logger.Warn("Empty targets, using fallback", "fallback", draft.Targets)
+	}
+	
+	// Prune control intents to reasonable maximum (3)
+	if len(draft.ControlIntents) > 3 {
+		draft.ControlIntents = draft.ControlIntents[:3]
+		p.logger.Warn("Too many control intents, pruned to 3")
+	}
+	
+	// Validate desired mode
+	validModes := map[model.StrategyMode]bool{
+		model.StrategyModeConservative: true,
+		model.StrategyModeBalanced:     true,
+		model.StrategyModeAggressive:   true,
+	}
+	
+	if !validModes[draft.DesiredMode] {
+		draft.DesiredMode = model.StrategyModeBalanced
+		p.logger.Warn("Invalid desired mode, defaulting to balanced", "original", draft.DesiredMode)
+	}
+	
+	// Ensure success criteria is not empty
+	if len(draft.SuccessCriteria) == 0 {
+		draft.SuccessCriteria = []model.SuccessCriteria{
+			{
+				MinSuccessRate:  0.8,
+				MaxFailureRate:  0.2,
+				TimeoutSeconds:  1800,
+				RequiredMetrics: []string{"plan_executed"},
+			},
+		}
+		p.logger.Warn("Empty success criteria, using fallback")
+	}
+	
+	// Add TTL to control intents if missing
+	for i, intent := range draft.ControlIntents {
+		if _, hasTTL := intent["ttl_seconds"]; !hasTTL {
+			draft.ControlIntents[i]["ttl_seconds"] = 3600 // 1 hour default
+		}
+	}
+	
+	return draft
+}

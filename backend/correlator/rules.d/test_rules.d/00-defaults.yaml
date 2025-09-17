@@ -1,0 +1,55 @@
+# AegisFlux Correlator - Default Rules
+# Global rules that apply to all hosts
+
+- id: "bash-exec-after-connect"
+  name: "Bash Execution After Network Connection"
+  description: "Detects bash execution shortly after network connections, indicating potential lateral movement or data exfiltration"
+  enabled: true
+  metadata:
+    author: "AegisFlux Team"
+    version: "1.0"
+    tags: ["lateral-movement", "execution", "network"]
+  
+  selector:
+    # Global rule - applies to all hosts
+    host_ids: []
+    host_globs: []
+    labels: []
+    exclude_host_ids: []
+  
+  when:
+    event_types: ["exec", "connect"]
+    patterns:
+      - type: "exec"
+        regex: ".*bash.*|.*sh.*"
+        fields:
+          binary_path: ".*bash.*|.*sh.*"
+      - type: "connect"
+        regex: ".*"
+        fields:
+          dst_port: "[0-9]+"
+  
+  requires_prior:
+    - event_types: ["connect"]
+      within_seconds: 5
+      patterns:
+        - type: "connect"
+          regex: ".*"
+  
+  window_seconds: 5
+  
+  outcome:
+    severity: "high"
+    confidence: 0.8
+    ttl_seconds: 3600
+    evidence:
+      - type: "correlation"
+        description: "Bash execution detected within 5 seconds of network connection"
+        template: "Executable {binary_path} executed on {host_id} after connecting to {dst_ip}:{dst_port}"
+      - type: "context"
+        description: "Network connection context"
+        template: "Connection to {dst_ip}:{dst_port} at {timestamp}"
+  
+  dedupe:
+    key_template: "bash-after-connect-{host_id}-{dst_ip}"
+    cooldown_seconds: 300

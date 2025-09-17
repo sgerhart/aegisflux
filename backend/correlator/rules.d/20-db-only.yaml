@@ -1,0 +1,74 @@
+# AegisFlux Correlator - Database-Specific Rules
+# Rules that only apply to hosts with role:db label
+
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "db-suspicious-access"
+  name: "Suspicious Database Access Pattern"
+  version: "1.0"
+spec:
+  enabled: true
+  selectors:
+    # Only apply to hosts with role:db label
+    host_ids: []
+    host_globs: []
+    labels: ["role:db"]
+    exclude_host_ids: []
+  
+  condition:
+    window_seconds: 3
+    when:
+      event_types: ["exec"]
+      binary_path_regex: ".*mysql.*|.*psql.*|.*mongo.*"
+    
+    requires_prior:
+      event_types: ["connect"]
+      within_seconds: 3
+  
+  outcome:
+    severity: "critical"
+    confidence: 0.9
+    evidence:
+      - "Database client execution after external connection"
+      - "Database client {binary_path} executed on database host {host_id} after external connection to {dst_ip}:{dst_port}"
+  
+  dedupe:
+    key_template: "db-suspicious-{host_id}-{dst_ip}-{binary_path}"
+    cooldown_seconds: 600
+  
+  ttl_seconds: 7200
+
+---
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "db-bulk-data-access"
+  name: "Bulk Data Access on Database"
+  version: "1.0"
+spec:
+  enabled: true
+  selectors:
+    host_ids: []
+    host_globs: []
+    labels: ["role:db"]
+    exclude_host_ids: []
+  
+  condition:
+    window_seconds: 3
+    when:
+      event_types: ["exec"]
+      binary_path_regex: ".*mysqldump.*|.*pg_dump.*|.*mongoexport.*"
+  
+  outcome:
+    severity: "critical"
+    confidence: 0.95
+    evidence:
+      - "Bulk database export command detected"
+      - "Bulk export command {binary_path} with args: {args.cmd} on database host {host_id}"
+  
+  dedupe:
+    key_template: "db-bulk-export-{host_id}-{binary_path}"
+    cooldown_seconds: 1800
+  
+  ttl_seconds: 7200

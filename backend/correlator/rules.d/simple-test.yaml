@@ -1,0 +1,26 @@
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "simple-test"
+  name: "Simple Test Rule"
+  version: "1.0"
+spec:
+  enabled: true
+  selectors:
+    host_ids: []
+    host_globs: []
+    labels: []
+    exclude_host_ids: []
+  condition:
+    window_seconds: 5
+    when:
+      event_types: ["exec"]
+    requires_prior: {}
+  outcome:
+    severity: "low"
+    confidence: 0.5
+    evidence: []
+  dedupe:
+    key_template: "simple-{host_id}"
+    cooldown_seconds: 60
+  ttl_seconds: 300

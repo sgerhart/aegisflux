@@ -1,0 +1,97 @@
+# AegisFlux Correlator - Database-Specific Rules
+# Rules that only apply to hosts with role:db label
+
+- id: "db-suspicious-access"
+  name: "Suspicious Database Access Pattern"
+  description: "Detects unusual database access patterns that may indicate unauthorized access or data exfiltration"
+  enabled: true
+  metadata:
+    author: "AegisFlux Team"
+    version: "1.0"
+    tags: ["database", "access", "suspicious"]
+  
+  selector:
+    # Only apply to hosts with role:db label
+    host_ids: []
+    host_globs: []
+    labels: ["role:db"]
+    exclude_host_ids: []
+  
+  when:
+    event_types: ["exec", "connect"]
+    patterns:
+      - type: "exec"
+        regex: ".*mysql.*|.*psql.*|.*mongo.*"
+        fields:
+          binary_path: ".*mysql.*|.*psql.*|.*mongo.*"
+          args.cmd: ".*select.*|.*export.*|.*dump.*"
+      - type: "connect"
+        regex: ".*"
+        fields:
+          dst_port: "3306|5432|27017"
+  
+  requires_prior:
+    - event_types: ["connect"]
+      within_seconds: 3
+      patterns:
+        - type: "connect"
+          regex: ".*"
+          fields:
+            dst_port: "3306|5432|27017"
+  
+  window_seconds: 3
+  
+  outcome:
+    severity: "critical"
+    confidence: 0.9
+    ttl_seconds: 7200
+    evidence:
+      - type: "correlation"
+        description: "Database client execution after external connection"
+        template: "Database client {binary_path} executed on database host {host_id} after external connection to {dst_ip}:{dst_port}"
+      - type: "context"
+        description: "Database connection details"
+        template: "External connection from {src_ip} to database port {dst_port} at {timestamp}"
+  
+  dedupe:
+    key_template: "db-suspicious-{host_id}-{dst_ip}-{binary_path}"
+    cooldown_seconds: 600
+
+- id: "db-bulk-data-access"
+  name: "Bulk Data Access on Database"
+  description: "Detects bulk data operations that may indicate data exfiltration"
+  enabled: true
+  metadata:
+    author: "AegisFlux Team"
+    version: "1.0"
+    tags: ["database", "bulk-access", "exfiltration"]
+  
+  selector:
+    host_ids: []
+    host_globs: []
+    labels: ["role:db"]
+    exclude_host_ids: []
+  
+  when:
+    event_types: ["exec"]
+    patterns:
+      - type: "exec"
+        regex: ".*mysqldump.*|.*pg_dump.*|.*mongoexport.*"
+        fields:
+          binary_path: ".*mysqldump.*|.*pg_dump.*|.*mongoexport.*"
+          args.cmd: ".*--all-databases.*|.*--all.*"
+  
+  window_seconds: 3
+  
+  outcome:
+    severity: "critical"
+    confidence: 0.95
+    ttl_seconds: 7200
+    evidence:
+      - type: "event"
+        description: "Bulk database export command detected"
+        template: "Bulk export command {binary_path} with args: {args.cmd} on database host {host_id}"
+  
+  dedupe:
+    key_template: "db-bulk-export-{host_id}-{binary_path}"
+    cooldown_seconds: 1800

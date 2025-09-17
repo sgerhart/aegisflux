@@ -1,0 +1,105 @@
+# AegisFlux Correlator - Host Override Examples
+# Example rules showing how to use host globs and overrides
+# This file demonstrates different selector patterns and outcome overrides
+
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "web-server-suspicious-activity"
+  name: "Suspicious Activity on Web Servers"
+  version: "1.0"
+spec:
+  enabled: false  # Example rule - disabled by default
+  selectors:
+    # Apply to all hosts matching web-* pattern
+    host_ids: []
+    host_globs: ["web-*"]
+    labels: []
+    exclude_host_ids: []
+  
+  condition:
+    window_seconds: 10
+    when:
+      event_types: ["exec"]
+      binary_path_regex: ".*sudo.*|.*su.*"
+  
+  outcome:
+    severity: "medium"  # Override from high to medium for web servers
+    confidence: 0.7
+    evidence:
+      - "Privilege escalation attempt on web server"
+      - "Privilege escalation command {binary_path} executed on web server {host_id}"
+  
+  dedupe:
+    key_template: "web-privilege-{host_id}-{binary_path}"
+    cooldown_seconds: 300
+  
+  ttl_seconds: 1800
+
+---
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "prod-vs-dev-severity-override"
+  name: "Production vs Development Severity Override"
+  version: "1.0"
+spec:
+  enabled: false  # Example rule - disabled by default
+  selectors:
+    host_ids: []
+    host_globs: []
+    labels: ["env:production"]
+    exclude_host_ids: []
+  
+  condition:
+    window_seconds: 5
+    when:
+      event_types: ["exec"]
+      binary_path_regex: ".*curl.*|.*wget.*"
+  
+  outcome:
+    severity: "critical"  # Higher severity for production environments
+    confidence: 0.8
+    evidence:
+      - "HTTP download in production environment"
+      - "HTTP download command {binary_path} executed on production host {host_id} with args: {args.cmd}"
+  
+  dedupe:
+    key_template: "prod-http-download-{host_id}"
+    cooldown_seconds: 600
+  
+  ttl_seconds: 3600
+
+---
+apiVersion: aegisflux/v1
+kind: CorrelationRule
+metadata:
+  id: "excluded-host-example"
+  name: "Rule with Excluded Hosts"
+  version: "1.0"
+spec:
+  enabled: false  # Example rule - disabled by default
+  selectors:
+    host_ids: []  # Apply to all hosts
+    host_globs: []
+    labels: []
+    exclude_host_ids: ["monitoring-host", "backup-server"]  # Exclude these specific hosts
+  
+  condition:
+    window_seconds: 1
+    when:
+      event_types: ["exec"]
+      binary_path_regex: ".*"
+  
+  outcome:
+    severity: "low"
+    confidence: 0.5
+    evidence:
+      - "Any executable execution (example)"
+      - "Executable {binary_path} executed on {host_id}"
+  
+  dedupe:
+    key_template: "any-exec-{host_id}-{binary_path}"
+    cooldown_seconds: 60
+  
+  ttl_seconds: 300

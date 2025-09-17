@@ -34,7 +34,7 @@ C_WARN  := \033[1;33m
 C_ERR   := \033[1;31m
 C_NONE  := \033[0m
 
-.PHONY: up down restart ps logs build rebuild seed test health clean nuke env
+.PHONY: up down restart ps logs build rebuild seed test health clean nuke env vault-up vault-bootstrap
 
 env:
 	@if [ ! -f $(ENV_FILE) ]; then \
@@ -117,4 +117,24 @@ nuke:
 	else \
 	  echo -e "$(C_WARN)[nuke] aborted$(C_NONE)"; \
 	fi
+
+# Vault targets
+vault-up:
+	@echo -e "$(C_INFO)[vault] starting Vault service$(C_NONE)"
+	$(COMPOSE) up -d vault
+	@echo -e "$(C_INFO)[vault] waiting for Vault to be ready...$(C_NONE)"
+	@for i in {1..30}; do \
+	  if curl -s http://localhost:8200/v1/sys/health >/dev/null 2>&1; then \
+	    echo -e "$(C_OK)[vault] Vault is ready$(C_NONE)"; break; \
+	  fi; \
+	  sleep 1; \
+	done
+	@echo -e "$(C_OK)[vault] Vault available at http://localhost:8200$(C_NONE)"
+	@echo "→ UI:       http://localhost:8200"
+	@echo "→ Token:    root"
+
+vault-bootstrap: vault-up
+	@echo -e "$(C_INFO)[vault] bootstrapping Vault with initial secrets$(C_NONE)"
+	@bash scripts/vault/dev-bootstrap.sh
+	@echo -e "$(C_OK)[vault] bootstrap complete$(C_NONE)"
 

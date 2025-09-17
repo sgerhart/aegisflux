@@ -56,6 +56,65 @@ services:
       - AF_ENV=dev
       - AF_FAKE_RDNS=true
 
+  correlator:
+    build: ../../backend/correlator
+    env_file: ["../../.env"]
+    depends_on: [nats, config-api]
+    ports:
+      - "8082:8082"
+    environment:
+      - CORR_NATS_URL=nats://nats:4222
+      - CORR_HTTP_ADDR=:8082
+      - CONFIG_API_URL=http://config-api:8085
+      - CORR_HOT_RELOAD=false
+
+  decision:
+    build:
+      context: ../../
+      dockerfile: backend/decision/Dockerfile
+    env_file: ["../../.env"]
+    depends_on: [nats, neo4j, config-api]
+    ports:
+      - "8083:8083"
+    environment:
+      - DECISION_NATS_URL=nats://nats:4222
+      - DECISION_HTTP_ADDR=:8083
+      - CONFIG_API_URL=http://config-api:8085
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
+
+  vault:
+    image: hashicorp/vault:1.16
+    container_name: aegisflux-vault
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    cap_add: ["IPC_LOCK"]
+    volumes:
+      - vault-data:/vault/file
+    command: >
+      sh -c "vault server -dev -dev-root-token-id=${VAULT_DEV_ROOT_TOKEN_ID:-root}
+             -dev-listen-address=0.0.0.0:8200"
+
+  config-api:
+    build: ../../backend/config-api
+    env_file: ["../../.env"]
+    depends_on: [timescale, nats]
+    ports:
+      - "8085:8085"
+    environment:
+      - PG_HOST=timescale
+      - PG_PORT=5432
+      - PG_USER=postgres
+      - PG_PASS=password
+      - PG_DB=aegisflux
+      - NATS_URL=nats://nats:4222
+      - CONFIG_API_HTTP_ADDR=:8085
+
 volumes:
   timescale_data:
   neo4j_data:
+  vault-data:
