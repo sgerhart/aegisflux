@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": "Event",
+  "description": "A single event to be ingested",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the event",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "description": "Type of the event",
+      "minLength": 1,
+      "enum": ["security", "audit", "performance", "application", "system", "exec"]
+    },
+    "source": {
+      "type": "string",
+      "description": "Source of the event",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "Unix timestamp in milliseconds",
+      "minimum": 1
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata as key-value pairs",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "payload": {
+      "type": "string",
+      "description": "Base64 encoded payload data",
+      "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+    }
+  },
+  "required": ["id", "type", "source", "timestamp"],
+  "additionalProperties": false
+}
