@@ -13,7 +13,7 @@
       "type": "string",
       "description": "Type of the event",
       "minLength": 1,
-      "enum": ["security", "audit", "performance", "application", "system", "exec", "connect"]
+      "enum": ["security", "audit", "performance", "application", "system"]
     },
     "source": {
       "type": "string",
@@ -23,7 +23,7 @@
     "timestamp": {
       "type": "integer",
       "description": "Unix timestamp in milliseconds",
-      "minimum": 1
+      "minimum": 0
     },
     "metadata": {
       "type": "object",
@@ -41,3 +41,4 @@
   "required": ["id", "type", "source", "timestamp"],
   "additionalProperties": false
 }
+

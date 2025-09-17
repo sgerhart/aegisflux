@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Seed script for AegisFlux demo data
+# Adds sample hosts and communication edges to Neo4j
+
+set -e
+
+echo "🌱 Seeding demo data..."
+
+# Neo4j connection details
+NEO4J_URI="http://localhost:7474"
+NEO4J_USER="${NEO4J_USER:-neo4j}"
+NEO4J_PASS="${NEO4J_PASS:-password}"
+
+# Create demo hosts and communication edges
+docker exec compose-neo4j-1 cypher-shell -u "$NEO4J_USER" -p "$NEO4J_PASS" "
+// Create demo hosts
+CREATE (h1:Host {host_id: 'host-001', hostname: 'web-server-01', ip_address: '192.168.1.10', os: 'ubuntu', last_seen: datetime()})
+CREATE (h2:Host {host_id: 'host-002', hostname: 'db-server-01', ip_address: '192.168.1.20', os: 'centos', last_seen: datetime()})
+CREATE (h3:Host {host_id: 'host-003', hostname: 'api-server-01', ip_address: '192.168.1.30', os: 'ubuntu', last_seen: datetime()})
+
+// Create communication edges
+CREATE (h1)-[:COMMUNICATES {port: 5432, protocol: 'tcp', last_seen: datetime(), bytes_sent: 1024, bytes_received: 2048}]->(h2)
+CREATE (h3)-[:COMMUNICATES {port: 80, protocol: 'tcp', last_seen: datetime(), bytes_sent: 512, bytes_received: 1024}]->(h1)
+CREATE (h1)-[:COMMUNICATES {port: 443, protocol: 'tcp', last_seen: datetime(), bytes_sent: 2048, bytes_received: 4096}]->(h3)
+
+// Create network endpoints
+CREATE (ep1:NetworkEndpoint {endpoint_id: 'ep-001', address: '192.168.1.10:80', service: 'http'})
+CREATE (ep2:NetworkEndpoint {endpoint_id: 'ep-002', address: '192.168.1.20:5432', service: 'postgresql'})
+CREATE (ep3:NetworkEndpoint {endpoint_id: 'ep-003', address: '192.168.1.30:443', service: 'https'})
+
+// Link hosts to endpoints
+CREATE (h1)-[:HAS_ENDPOINT]->(ep1)
+CREATE (h2)-[:HAS_ENDPOINT]->(ep2)
+CREATE (h3)-[:HAS_ENDPOINT]->(ep3)
+"
+
+echo "✅ Demo data seeded successfully!"
+echo "   - 3 Hosts created"
+echo "   - 3 NetworkEndpoints created"
+echo "   - 3 Communication edges created"

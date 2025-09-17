@@ -1,2 +1,2 @@
 # AegisFlux
-Top-level repo for CVE-aware eBPF runtime + graph segmentation.
+Repo for CVE-aware eBPF runtime, proactive mitigations, and graph segmentation.

@@ -1,0 +1,19 @@
+{
+  "ts": "2024-01-01T12:00:00Z",
+  "host_id": "host-001",
+  "pid": 1234,
+  "uid": 1001,
+  "container_id": null,
+  "binary_path": "/usr/bin/psql",
+  "binary_sha256": "abc123def456",
+  "event_type": "connect",
+  "args": {
+    "dst_ip": "10.0.0.10",
+    "dst_port": 5432
+  },
+  "context": {
+    "kernel": "6.6",
+    "tags": ["dev"]
+  }
+}
+

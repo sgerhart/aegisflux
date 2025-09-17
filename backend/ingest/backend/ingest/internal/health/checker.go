@@ -74,3 +74,4 @@ func (c *ServiceChecker) GetStatus() map[string]bool {
 		"schema": c.schemaReady,
 	}
 }
+

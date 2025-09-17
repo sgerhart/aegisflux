@@ -51,3 +51,4 @@ func main() {
 
 	logger.Info("Event published successfully", "event_id", event.Id)
 }
+

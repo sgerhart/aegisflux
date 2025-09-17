@@ -1,0 +1,18 @@
+{
+  "ts": "2024-01-01T12:00:01Z",
+  "host_id": "host-001",
+  "pid": 1235,
+  "uid": 1001,
+  "container_id": null,
+  "binary_path": "/usr/bin/ls",
+  "binary_sha256": "def456ghi789",
+  "event_type": "exec",
+  "args": {
+    "argv": ["/usr/bin/ls", "-la", "/tmp"]
+  },
+  "context": {
+    "kernel": "6.6",
+    "tags": ["dev"]
+  }
+}
+

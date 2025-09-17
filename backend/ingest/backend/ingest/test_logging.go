@@ -94,3 +94,4 @@ func main() {
 	
 	logger.Info("Logging test completed")
 }
+

@@ -44,3 +44,4 @@ func (m *Metrics) IncrementEventsInvalid() {
 func (m *Metrics) IncrementNatsPublishErrors() {
 	m.NatsPublishErrors.Inc()
 }
+
