@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Rule
+metadata:
+  id: temporal-correlation-attack
+  name: "Temporal Correlation Attack Pattern"
+  version: "1.0.0"
+spec:
+  enabled: true
+  selectors:
+    host_ids: []
+    host_globs: []
+    host_patterns: [".*"]
+    environment: ["production", "staging"]
+    service_types: ["web", "api", "database", "cache"]
+    regions: []
+    labels: []
+    exclude_host_ids: []
+  condition:
+    window_seconds: 1800  # 30 minutes
+    temporal_window:
+      duration_seconds: 3600  # 1 hour
+      step_seconds: 300       # 5 minutes
+      overlap_allowed: true
+      window_type: "sliding"
+    time_range:
+      start_hour: 9
+      end_hour: 17
+      days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+      timezone: "UTC"
+    frequency:
+      min_interval_seconds: 60
+      max_interval_seconds: 600
+      backoff_multiplier: 2.0
+    when:
+      event_type: "connect"
+      args.dst_port: ">= 80"
+      args.dst_port: "<= 443"
+    requires_prior:
+      event_type: "exec"
+      binary_path_regex: ".*(curl|wget|nc|netcat).*"
+  outcome:
+    severity: "medium"
+    confidence: 0.75
+    title: "Suspicious Network Activity Pattern"
+    description: "Network connection following command execution detected, possible reconnaissance or data exfiltration"
+    tags: ["network", "reconnaissance", "temporal", "correlation"]
+    metadata:
+      category: "attack-pattern"
+      subcategory: "reconnaissance"
+      priority: "medium"
+      auto_remediate: false
+      attack_stage: "reconnaissance"
+    evidence:
+      - "event_type"
+      - "args.dst_ip"
+      - "args.dst_port"
+      - "binary_path"
+      - "timestamp"
+    actions:
+      - type: "alert"
+        parameters:
+          channel: "#security-monitoring"
+          priority: "medium"
+          template: "temporal_correlation"
+        priority: 1
+        enabled: true
+      - type: "log"
+        parameters:
+          level: "INFO"
+          format: "json"
+        priority: 2
+        enabled: true
+  dedupe:
+    key_template: "{{.host_id}}:{{.args.dst_ip}}:{{.args.dst_port}}"
+    cooldown_seconds: 7200  # 2 hours
+  ttl_seconds: 172800  # 48 hours

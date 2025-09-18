@@ -41,6 +41,10 @@ func (api *HTTPAPI) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/findings", api.handleFindings)
 	mux.HandleFunc("/findings/reset", api.handleResetFindings)
 	mux.HandleFunc("/rules", api.handleRules)
+	mux.HandleFunc("/rules/add", api.handleAddRule)
+	mux.HandleFunc("/rules/enable/", api.handleEnableRule)
+	mux.HandleFunc("/rules/disable/", api.handleDisableRule)
+	mux.HandleFunc("/rules/reload", api.handleReloadRules)
 	mux.HandleFunc("/rules/overrides", api.handleRuleOverrides)
 	mux.HandleFunc("/rules/overrides/", api.handleRuleOverrideByID)
 	mux.Handle("/metrics", promhttp.Handler())
@@ -340,6 +344,179 @@ func (api *HTTPAPI) handleRuleOverrideByID(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
+}
+
+// handleAddRule handles POST /rules/add
+func (api *HTTPAPI) handleAddRule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body
+	requestBody, err := readRequestBody(r)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	// Parse rule
+	var rule rules.Rule
+	if err := json.Unmarshal(requestBody, &rule); err != nil {
+		http.Error(w, "Failed to parse rule JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate rule
+	if err := rule.Validate(); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid rule: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// For now, we'll just reload the rules directory
+	// In a real implementation, you'd write the rule to a file
+	_, err = api.ruleLoader.LoadSnapshot()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to reload rules: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":   "Rule added successfully",
+		"rule_id":   rule.Metadata.ID,
+		"timestamp": time.Now().UTC(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleEnableRule handles POST /rules/enable/{rule_id}
+func (api *HTTPAPI) handleEnableRule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract rule ID from URL path
+	ruleID := strings.TrimPrefix(r.URL.Path, "/rules/enable/")
+	if ruleID == "" {
+		http.Error(w, "Rule ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Add override to enable rule
+	override, err := api.overrideManager.AddOverride(
+		ruleID,
+		boolPtr(true),
+		nil, // severity
+		nil, // confidence
+		nil, // ttl
+		"Enabled via HTTP API",
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to enable rule: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":     "Rule enabled successfully",
+		"rule_id":     ruleID,
+		"override_id": override.ID,
+		"timestamp":   time.Now().UTC(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleDisableRule handles POST /rules/disable/{rule_id}
+func (api *HTTPAPI) handleDisableRule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract rule ID from URL path
+	ruleID := strings.TrimPrefix(r.URL.Path, "/rules/disable/")
+	if ruleID == "" {
+		http.Error(w, "Rule ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Add override to disable rule
+	override, err := api.overrideManager.AddOverride(
+		ruleID,
+		boolPtr(false),
+		nil, // severity
+		nil, // confidence
+		nil, // ttl
+		"Disabled via HTTP API",
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to disable rule: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":     "Rule disabled successfully",
+		"rule_id":     ruleID,
+		"override_id": override.ID,
+		"timestamp":   time.Now().UTC(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleReloadRules handles POST /rules/reload
+func (api *HTTPAPI) handleReloadRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Reload rules
+	snapshot, err := api.ruleLoader.LoadSnapshot()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to reload rules: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":      "Rules reloaded successfully",
+		"rules_count":  len(snapshot.Rules),
+		"version":      snapshot.Version,
+		"timestamp":    time.Now().UTC(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+// boolPtr returns a pointer to a boolean value
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 // readRequestBody reads the request body

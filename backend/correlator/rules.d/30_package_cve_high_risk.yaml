@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Rule
+metadata:
+  id: package-cve-high-risk
+  name: "High Risk Package CVE Detection"
+  version: "1.0.0"
+spec:
+  enabled: true
+  selectors:
+    host_ids: []
+    host_globs: []
+    host_patterns: ["web-.*", "api-.*", "db-.*"]
+    environment: ["production", "staging"]
+    service_types: ["web", "api", "database"]
+    regions: ["us-east-1", "us-west-2"]
+    labels: ["security-critical"]
+    exclude_host_ids: ["test-*", "dev-*"]
+  condition:
+    window_seconds: 300  # 5 minutes
+    temporal_window:
+      duration_seconds: 600  # 10 minutes
+      step_seconds: 60       # 1 minute
+      overlap_allowed: true
+      window_type: "sliding"
+    time_range:
+      start_hour: 0
+      end_hour: 23
+      days: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+      timezone: "UTC"
+    frequency:
+      min_interval_seconds: 30
+      max_interval_seconds: 300
+      backoff_multiplier: 1.5
+    when:
+      record_type: "pkg_cve_enriched"
+      enrichment.risk_level: "HIGH"
+      enrichment.exploitability_score: ">= 0.7"
+    requires_prior:
+      enrichment.risk_level: "MEDIUM"
+  outcome:
+    severity: "high"
+    confidence: 0.85
+    title: "High Risk Package CVE Detected"
+    description: "A package with high exploitability score and risk level has been detected on the host"
+    tags: ["cve", "package", "high-risk", "security"]
+    metadata:
+      category: "vulnerability"
+      subcategory: "package-cve"
+      priority: "high"
+      auto_remediate: false
+    evidence:
+      - "package_name"
+      - "package_version"
+      - "cve_id"
+      - "exploitability_score"
+      - "risk_level"
+      - "cvss_score"
+    actions:
+      - type: "alert"
+        parameters:
+          channel: "#security-alerts"
+          priority: "high"
+          template: "package_cve_high_risk"
+        priority: 1
+        enabled: true
+      - type: "webhook"
+        parameters:
+          url: "https://security-api.company.com/alerts"
+          method: "POST"
+          headers:
+            Authorization: "Bearer ${SECURITY_API_TOKEN}"
+        priority: 2
+        enabled: true
+      - type: "log"
+        parameters:
+          level: "WARN"
+          format: "json"
+        priority: 3
+        enabled: true
+  dedupe:
+    key_template: "{{.host_id}}:{{.package.name}}:{{.cve_candidate.cve_id}}"
+    cooldown_seconds: 3600  # 1 hour
+  ttl_seconds: 86400  # 24 hours
