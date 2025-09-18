@@ -1,2 +1,0 @@
-- Implement POST /segment/propose: derive edges/allow_cidrs from graph/flows.
-- Implement POST /segment/plan: convert proposal into MapSnapshot(s) and POST to orchestrator /seg/maps.

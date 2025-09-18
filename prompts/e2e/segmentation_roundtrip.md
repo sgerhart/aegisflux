@@ -1,3 +1,0 @@
-- Call /segment/propose for a service_id.
-- Post /segment/plan -> orchestrator /seg/maps -> watch NATS.
-- Agent consumes, updates maps, and reports version; verify traffic behavior.

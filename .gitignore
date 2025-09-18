@@ -100,3 +100,6 @@ config/prod.yaml
 # data/samples/
 # data/timeseries/
 # data/graph/
+
+# Prompts directory (contains sensitive prompt templates)
+prompts/
