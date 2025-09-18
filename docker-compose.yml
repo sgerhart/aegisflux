@@ -1,0 +1,30 @@
+services:
+  nats:
+    image: nats:2.10
+    command: ["-js", "-DV"]
+    ports: ["4222:4222"]
+
+  cve-sync:
+    build: ./feeds/cve-sync
+    environment:
+      - NATS_URL=nats://nats:4222
+    depends_on: [nats]
+
+  mappers:
+    build: ./feeds/mappers
+    environment:
+      - NATS_URL=nats://nats:4222
+    depends_on: [nats]
+
+  etl-enrich:
+    build: ./backend/etl-enrich
+    environment:
+      - NATS_URL=nats://nats:4222
+    depends_on: [nats]
+
+  correlator:
+    build: ./backend/correlator
+    environment:
+      - NATS_URL=nats://nats:4222
+    ports: ["8085:8085"]
+    depends_on: [nats]
