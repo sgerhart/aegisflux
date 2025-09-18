@@ -150,6 +150,17 @@ services:
       - ORCHESTRATOR_LOG_LEVEL=INFO
       - EBPF_TEMPLATE_DIR=/app/bpf-templates
 
+  cve-sync:
+    build: ../../feeds/cve-sync
+    env_file: ["../../.env"]
+    depends_on: [vault, nats]
+    environment:
+      - NATS_URL=nats://nats:4222
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=root
+      - VAULT_DEV_MODE=true
+    restart: unless-stopped
+
   local-agent-dev:
     build:
       context: ../../
