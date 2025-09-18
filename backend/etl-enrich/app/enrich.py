@@ -3,6 +3,7 @@
 import logging
 from typing import Dict, Any, List, Optional
 import ipaddress
+from datetime import datetime
 
 from .config import config
 
@@ -128,6 +129,151 @@ def validate_enriched_event(event_data: Dict[str, Any]) -> bool:
         return False
     
     return True
+
+
+def calculate_exploitability_score(cve_data: Dict[str, Any], candidate: Dict[str, Any]) -> float:
+    """
+    Calculate exploitability score for a CVE candidate.
+    
+    Args:
+        cve_data: Full CVE data from feeds.cve.updates
+        candidate: CVE candidate from package mapper
+        
+    Returns:
+        Exploitability score between 0.0 and 1.0
+    """
+    score = 0.0
+    
+    # Base score from package mapper
+    base_score = candidate.get('score', 0.0)
+    score += base_score * 0.4  # 40% weight for package matching score
+    
+    # CVSS score influence
+    cvss_score = candidate.get('cvss_score', 0.0)
+    if cvss_score > 0:
+        # Normalize CVSS score (0-10) to 0-1
+        normalized_cvss = min(cvss_score / 10.0, 1.0)
+        score += normalized_cvss * 0.3  # 30% weight for CVSS score
+    
+    # Severity influence
+    severity = candidate.get('severity', '').lower()
+    severity_scores = {
+        'critical': 0.3,
+        'high': 0.2,
+        'medium': 0.1,
+        'low': 0.05
+    }
+    score += severity_scores.get(severity, 0.0)
+    
+    # CWE influence (if available)
+    cwe_data = cve_data.get('cwe', {})
+    if cwe_data:
+        # Common high-risk CWEs
+        high_risk_cwes = [
+            'CWE-79',  # Cross-site Scripting
+            'CWE-89',  # SQL Injection
+            'CWE-78',  # OS Command Injection
+            'CWE-22',  # Path Traversal
+            'CWE-352', # Cross-Site Request Forgery
+            'CWE-434', # Unrestricted Upload
+            'CWE-502', # Deserialization
+            'CWE-862', # Missing Authorization
+            'CWE-863', # Incorrect Authorization
+            'CWE-269', # Improper Privilege Management
+        ]
+        
+        cwe_ids = cwe_data.get('cwe_ids', [])
+        for cwe_id in cwe_ids:
+            if cwe_id in high_risk_cwes:
+                score += 0.1  # 10% bonus for high-risk CWEs
+                break
+    
+    # References influence (more references = more attention)
+    references = cve_data.get('references', [])
+    if len(references) > 5:
+        score += 0.05  # 5% bonus for well-documented CVEs
+    
+    # Recent CVE bonus
+    published = cve_data.get('published', '')
+    if published:
+        try:
+            pub_date = datetime.fromisoformat(published.replace('Z', '+00:00'))
+            days_old = (datetime.now(pub_date.tzinfo) - pub_date).days
+            if days_old < 30:  # Less than 30 days old
+                score += 0.05  # 5% bonus for recent CVEs
+        except:
+            pass
+    
+    return min(score, 1.0)  # Cap at 1.0
+
+
+def enrich_pkg_cve_event(pkg_cve_data: Dict[str, Any], candidate: Dict[str, Any], cve_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Enrich package CVE event by joining with CVE data.
+    
+    Args:
+        pkg_cve_data: Package CVE mapping data from feeds.pkg.cve
+        candidate: Specific CVE candidate
+        cve_data: Full CVE data from feeds.cve.updates
+        
+    Returns:
+        Enriched package CVE record
+    """
+    # Calculate exploitability score
+    exploitability_score = calculate_exploitability_score(cve_data, candidate)
+    
+    # Create enriched record
+    enriched_record = {
+        "record_type": "pkg_cve_enriched",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "host_id": pkg_cve_data.get('host_id'),
+        "package": pkg_cve_data.get('package', {}),
+        "cve_candidate": {
+            "cve_id": candidate.get('cve_id'),
+            "score": candidate.get('score'),
+            "reason": candidate.get('reason'),
+            "cvss_score": candidate.get('cvss_score'),
+            "severity": candidate.get('severity')
+        },
+        "cve_data": {
+            "cve_id": cve_data.get('cve_id'),
+            "published": cve_data.get('published'),
+            "last_modified": cve_data.get('last_modified'),
+            "descriptions": cve_data.get('descriptions', []),
+            "cvss": cve_data.get('cvss', {}),
+            "cwe": cve_data.get('cwe', {}),
+            "affected_products": cve_data.get('affected_products', []),
+            "references": cve_data.get('references', [])
+        },
+        "enrichment": {
+            "exploitability_score": round(exploitability_score, 3),
+            "risk_level": _determine_risk_level(exploitability_score),
+            "enrichment_timestamp": datetime.utcnow().isoformat() + "Z",
+            "enrichment_version": "1.0"
+        },
+        "metadata": {
+            "source": "etl-enrich",
+            "enrichment_pipeline": "pkg_cve_join",
+            "original_timestamp": pkg_cve_data.get('timestamp'),
+            "total_candidates": pkg_cve_data.get('total_candidates', 0)
+        }
+    }
+    
+    return enriched_record
+
+
+def _determine_risk_level(exploitability_score: float) -> str:
+    """Determine risk level based on exploitability score."""
+    if exploitability_score >= 0.8:
+        return "CRITICAL"
+    elif exploitability_score >= 0.6:
+        return "HIGH"
+    elif exploitability_score >= 0.4:
+        return "MEDIUM"
+    elif exploitability_score >= 0.2:
+        return "LOW"
+    else:
+        return "MINIMAL"
 
 
 # Legacy functions for backward compatibility

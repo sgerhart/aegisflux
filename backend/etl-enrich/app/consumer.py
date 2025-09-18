@@ -1,11 +1,11 @@
-"""NATS consumer for processing raw events."""
+"""NATS consumer for processing raw events and package CVE data."""
 
 import asyncio
 import json
 import logging
 import signal
 import sys
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 import nats
@@ -13,7 +13,7 @@ import orjson
 from nats.aio.client import Client as NATS
 
 from .config import config
-from .enrich import enrich_event
+from .enrich import enrich_event, enrich_pkg_cve_event
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ shutdown_event = asyncio.Event()
 
 
 class EventConsumer:
-    """NATS consumer for processing raw events."""
+    """NATS consumer for processing raw events and package CVE data."""
     
     def __init__(self, max_inflight: int = 100):
         self.max_inflight = max_inflight
@@ -32,6 +32,10 @@ class EventConsumer:
         self.neo4j_writer = None
         self.nats_client = None
         self.running = False
+        # CVE cache for storing CVE documents
+        self.cve_cache = {}
+        # Package CVE cache for storing package CVE mappings
+        self.pkg_cve_cache = {}
     
     async def connect(self):
         """Connect to NATS and initialize database writers."""
@@ -97,6 +101,89 @@ class EventConsumer:
                 logger.error(f"Error processing message: {e}")
                 # Acknowledge the message to avoid reprocessing
                 await msg.ack()
+    
+    async def _handle_cve_update(self, msg):
+        """Handle CVE updates from feeds.cve.updates."""
+        try:
+            cve_data = orjson.loads(msg.data)
+            cve_id = cve_data.get('cve_id')
+            if cve_id:
+                self.cve_cache[cve_id] = cve_data
+                logger.info(f"Cached CVE: {cve_id}")
+                
+                # Check if we have any pending package CVE mappings for this CVE
+                await self._process_pending_pkg_cve_mappings(cve_id)
+        except Exception as e:
+            logger.error(f"Error handling CVE update: {e}")
+    
+    async def _handle_pkg_cve_mapping(self, msg):
+        """Handle package CVE mappings from feeds.pkg.cve."""
+        try:
+            pkg_cve_data = orjson.loads(msg.data)
+            host_id = pkg_cve_data.get('host_id')
+            package = pkg_cve_data.get('package', {})
+            package_name = package.get('name')
+            candidates = pkg_cve_data.get('candidates', [])
+            
+            logger.info(f"Received package CVE mapping for {host_id}: {package_name} -> {len(candidates)} candidates")
+            
+            # Store package CVE mapping
+            cache_key = f"{host_id}:{package_name}"
+            self.pkg_cve_cache[cache_key] = pkg_cve_data
+            
+            # Process each candidate
+            for candidate in candidates:
+                cve_id = candidate.get('cve_id')
+                if cve_id in self.cve_cache:
+                    # We have the CVE data, process immediately
+                    await self._process_pkg_cve_enrichment(pkg_cve_data, candidate, self.cve_cache[cve_id])
+                else:
+                    # Store for later processing when CVE data arrives
+                    logger.debug(f"CVE {cve_id} not yet cached, will process when available")
+                    
+        except Exception as e:
+            logger.error(f"Error handling package CVE mapping: {e}")
+    
+    async def _process_pending_pkg_cve_mappings(self, cve_id: str):
+        """Process pending package CVE mappings when CVE data becomes available."""
+        try:
+            cve_data = self.cve_cache.get(cve_id)
+            if not cve_data:
+                return
+            
+            # Find all package CVE mappings that reference this CVE
+            for cache_key, pkg_cve_data in self.pkg_cve_cache.items():
+                candidates = pkg_cve_data.get('candidates', [])
+                for candidate in candidates:
+                    if candidate.get('cve_id') == cve_id:
+                        await self._process_pkg_cve_enrichment(pkg_cve_data, candidate, cve_data)
+                        
+        except Exception as e:
+            logger.error(f"Error processing pending package CVE mappings: {e}")
+    
+    async def _process_pkg_cve_enrichment(self, pkg_cve_data: Dict[str, Any], candidate: Dict[str, Any], cve_data: Dict[str, Any]):
+        """Process package CVE enrichment by joining with CVE data."""
+        try:
+            # Create enriched package CVE record
+            enriched_record = enrich_pkg_cve_event(pkg_cve_data, candidate, cve_data)
+            
+            # Publish enriched record
+            enriched_json = orjson.dumps(enriched_record)
+            await self.nats_client.publish(
+                "etl.enriched",
+                enriched_json,
+                headers={
+                    "x-host-id": pkg_cve_data.get('host_id'),
+                    "x-package": pkg_cve_data.get('package', {}).get('name'),
+                    "x-cve-id": candidate.get('cve_id'),
+                    "x-enriched": "true"
+                }
+            )
+            
+            logger.info(f"Published enriched package CVE record: {candidate.get('cve_id')}")
+            
+        except Exception as e:
+            logger.error(f"Error processing package CVE enrichment: {e}")
     
     async def _handle_message(self, msg):
         """Handle a single message with full processing pipeline."""
@@ -288,6 +375,20 @@ class EventConsumer:
                 cb=self._process_message
             )
             logger.info("Subscribed to events.raw WITHOUT queue group")
+            
+            # Subscribe to CVE updates
+            await self.nats_client.subscribe(
+                "feeds.cve.updates",
+                cb=self._handle_cve_update
+            )
+            logger.info("Subscribed to feeds.cve.updates")
+            
+            # Subscribe to package CVE mappings
+            await self.nats_client.subscribe(
+                "feeds.pkg.cve",
+                cb=self._handle_pkg_cve_mapping
+            )
+            logger.info("Subscribed to feeds.pkg.cve")
             
             self.running = True
             
