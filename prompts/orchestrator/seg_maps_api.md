@@ -1,0 +1,3 @@
+- Implement schema validation for MapSnapshot (schemas/mapsnapshot.json).
+- Publish accepted snapshots to NATS 'actions.seg.maps' with target hosts.
+- Add promote/rollback endpoints (stubs OK) for canary/enforce transitions.

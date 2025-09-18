@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MapSnapshot",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "service_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dst_cidr": {
+            "type": "string"
+          },
+          "proto": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "any"
+            ]
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "dst_cidr",
+          "proto",
+          "port"
+        ]
+      }
+    },
+    "allow_cidrs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cidr": {
+            "type": "string"
+          },
+          "proto": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "any"
+            ]
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "cidr",
+          "proto",
+          "port"
+        ]
+      }
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 60
+    },
+    "meta": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "version",
+    "service_id",
+    "ttl_seconds"
+  ]
+}
