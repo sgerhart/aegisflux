@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aegisflux/correlator/internal/metrics"
-	"github.com/aegisflux/correlator/internal/model"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/metrics"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/model"
 )
 
 // Evaluator handles rule evaluation with caching and template rendering

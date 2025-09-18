@@ -3,12 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"time"
 
-	"github.com/aegisflux/correlator/internal/rules"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/rules"
 )
 
 func main() {

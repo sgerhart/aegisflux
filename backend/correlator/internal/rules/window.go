@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aegisflux/correlator/internal/model"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/model"
 )
 
 // WindowBuffer maintains a per-host deque of recent events with garbage collection

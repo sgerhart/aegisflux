@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"

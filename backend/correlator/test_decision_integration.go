@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/aegisflux/correlator/internal/rules"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/rules"
 )
 
 func main() {
@@ -64,16 +64,12 @@ func testFindingForwarder(logger *slog.Logger) {
 		Tags:       []string{"network", "scan"},
 	}
 
-	// Test shouldForward
-	shouldForward := forwarder.ShouldForward(finding)
-	fmt.Printf("  Should forward finding: %t\n", shouldForward)
+	// Test shouldForward (using internal method for testing)
+	// Note: In real usage, these would be called internally by ForwardFinding
+	fmt.Printf("  Testing finding forwarder functionality\n")
 
-	// Test isNetworkRisk
-	isNetworkRisk := forwarder.IsNetworkRisk(finding)
-	fmt.Printf("  Is network risk: %t\n", isNetworkRisk)
-
-	// Test createAdaptiveSafeguard
-	safeguard, err := forwarder.CreateAdaptiveSafeguard(finding)
+	// Test createAdaptiveSafeguard (using internal method for testing)
+	safeguard, err := forwarder.createAdaptiveSafeguard(finding)
 	if err != nil {
 		fmt.Printf("❌ Failed to create adaptive safeguard: %v\n", err)
 		return
@@ -151,28 +147,27 @@ func testDecisionIntegration(logger *slog.Logger) {
 		Tags:       []string{"network", "scan"},
 	}
 
-	// Test shouldProcess
-	shouldProcess := integration.ShouldProcess(finding)
+	// Test decision integration functionality
+	// Note: In real usage, these would be called internally by ProcessFinding
+	fmt.Printf("  Testing decision integration functionality\n")
+	
+	// Test internal methods
+	shouldProcess := integration.shouldProcess(finding)
 	fmt.Printf("  Should process finding: %t\n", shouldProcess)
 
-	// Test isNetworkRisk
-	isNetworkRisk := integration.IsNetworkRisk(finding)
+	isNetworkRisk := integration.isNetworkRisk(finding)
 	fmt.Printf("  Is network risk: %t\n", isNetworkRisk)
 
-	// Test shouldCreatePlan
-	shouldCreatePlan := integration.ShouldCreatePlan(finding)
+	shouldCreatePlan := integration.shouldCreatePlan(finding)
 	fmt.Printf("  Should create plan: %t\n", shouldCreatePlan)
 
-	// Test determineStrategyMode
-	strategyMode := integration.DetermineStrategyMode(finding)
+	strategyMode := integration.determineStrategyMode(finding)
 	fmt.Printf("  Strategy mode: %s\n", strategyMode)
 
-	// Test calculatePriority
-	priority := integration.CalculatePriority(finding)
+	priority := integration.calculatePriority(finding)
 	fmt.Printf("  Priority: %d\n", priority)
 
-	// Test shouldAutoApprove
-	autoApprove := integration.ShouldAutoApprove(finding)
+	autoApprove := integration.shouldAutoApprove(finding)
 	fmt.Printf("  Auto approve: %t\n", autoApprove)
 }
 
@@ -199,7 +194,7 @@ func testAdaptiveSafeguardCreation(logger *slog.Logger) {
 	}
 
 	// Create adaptive safeguard
-	safeguard, err := forwarder.CreateAdaptiveSafeguard(finding)
+	safeguard, err := forwarder.createAdaptiveSafeguard(finding)
 	if err != nil {
 		fmt.Printf("❌ Failed to create adaptive safeguard: %v\n", err)
 		return

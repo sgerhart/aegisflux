@@ -4,7 +4,7 @@ import (
 	"container/ring"
 	"sync"
 
-	"github.com/aegisflux/correlator/internal/model"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/model"
 	"github.com/hashicorp/golang-lru/v2"
 )
 

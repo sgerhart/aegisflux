@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aegisflux/correlator/internal/api"
-	"github.com/aegisflux/correlator/internal/metrics"
-	"github.com/aegisflux/correlator/internal/model"
-	"github.com/aegisflux/correlator/internal/nats"
-	"github.com/aegisflux/correlator/internal/rules"
-	"github.com/aegisflux/correlator/internal/store"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/api"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/metrics"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/model"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/nats"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/rules"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/store"
 	"github.com/nats-io/nats.go"
 )
 

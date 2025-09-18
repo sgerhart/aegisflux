@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aegisflux/correlator/internal/model"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/model"
 	"github.com/stretchr/testify/assert"
 )
 

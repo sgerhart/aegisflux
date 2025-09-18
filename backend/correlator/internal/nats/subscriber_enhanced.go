@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/aegisflux/correlator/internal/rules"
-	"github.com/aegisflux/correlator/internal/store"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/rules"
+	"github.com/sgerhart/aegisflux/backend/correlator/internal/store"
 	"github.com/nats-io/nats.go"
 )
 
