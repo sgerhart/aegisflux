@@ -1,0 +1,63 @@
+[Unit]
+Description=AegisFlux Local Agent
+Documentation=https://github.com/sgerhart/aegisflux
+After=network.target network-online.target
+Wants=network-online.target
+Requires=network.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=/usr/local/bin/aegisflux-agent
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Security settings
+User=aegisflux
+Group=aegisflux
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp/aegisflux-agent /sys/fs/bpf
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+RestrictNamespaces=true
+
+# Capabilities
+AmbientCapabilities=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_BPF CAP_SYS_RESOURCE
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_BPF CAP_SYS_RESOURCE
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+MemoryMax=512M
+CPUQuota=50%
+
+# Environment
+Environment=AGENT_HOST_ID=%i
+Environment=AGENT_LOG_LEVEL=info
+Environment=AGENT_CACHE_DIR=/tmp/aegisflux-agent
+Environment=AGENT_REGISTRY_URL=http://bpf-registry:8084
+Environment=AGENT_NATS_URL=nats://nats:4222
+Environment=AGENT_VAULT_URL=http://vault:8200
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aegisflux-agent
+
+[Install]
+WantedBy=multi-user.target

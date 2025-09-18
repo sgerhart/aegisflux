@@ -114,7 +114,62 @@ services:
       - NATS_URL=nats://nats:4222
       - CONFIG_API_HTTP_ADDR=:8085
 
+  bpf-registry:
+    build: ../../backend/bpf-registry
+    env_file: ["../../.env"]
+    depends_on: [vault]
+    ports:
+      - "8090:8090"
+    volumes:
+      - bpf_artifacts:/data/artifacts
+    environment:
+      - BPF_REGISTRY_HTTP_ADDR=:8090
+      - BPF_REGISTRY_DATA_DIR=/data/artifacts
+      - BPF_REGISTRY_LOG_LEVEL=INFO
+      - VAULT_ADDR=http://vault:8200
+      - BPF_REGISTRY_SIGNER_PATH=secret/data/bpf-registry/signer
+      - VAULT_DEV_MODE=true
+
+  orchestrator:
+    build:
+      context: ../../
+      dockerfile: backend/orchestrator/Dockerfile
+    env_file: ["../../.env"]
+    depends_on: [nats, bpf-registry, decision]
+    ports:
+      - "8084:8084"
+    volumes:
+      - ../../bpf-templates:/app/bpf-templates:ro
+    environment:
+      - ORCHESTRATOR_NATS_URL=nats://nats:4222
+      - ORCHESTRATOR_HTTP_ADDR=:8084
+      - BPF_REGISTRY_URL=http://bpf-registry:8090
+      - DECISION_API_URL=http://decision:8083
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=root
+      - ORCHESTRATOR_LOG_LEVEL=INFO
+      - EBPF_TEMPLATE_DIR=/app/bpf-templates
+
+  local-agent-dev:
+    build:
+      context: ../../
+      dockerfile: agents/local-agent/Dockerfile
+    env_file: ["../../.env"]
+    privileged: true
+    pid: "host"
+    network_mode: "host"
+    depends_on: [bpf-registry, nats]
+    environment:
+      - AGENT_HOST_ID=web-01
+      - AGENT_REGISTRY_URL=http://localhost:8090
+      - AGENT_NATS_URL=nats://localhost:4222
+      - AGENT_VAULT_URL=http://localhost:8200
+      - AGENT_VAULT_TOKEN=root
+      - AGENT_HTTP_PORT=7070
+      - AGENT_LOG_LEVEL=info
+
 volumes:
   timescale_data:
   neo4j_data:
   vault-data:
+  bpf_artifacts:
