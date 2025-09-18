@@ -1,0 +1,214 @@
+Yes—after Cap 5 you should be able to run a full e2e:
+Plan → Orchestrator → Registry → Agent → eBPF load → Telemetry.
+Below is a tight “fix + run” checklist to get you there, including the common orchestrator-Docker hiccup and the exact commands to smoke-test.
+
+0) Quick readiness check
+
+Registry up: curl -s http://localhost:8090/healthz
+
+NATS up: run nats sub 'agent.telemetry' and nats sub 'plans.proposed' in two shells
+
+Decision up: curl -s http://localhost:8083/healthz
+
+Templates exist: bpf-templates/drop_egress_by_cgroup/ with a Makefile that actually builds a CO-RE .o
+
+If any of those are missing, fix before proceeding.
+
+1) Fix the orchestrator build (common Docker issue)
+
+Most build failures come from the orchestrator container not having clang/llvm, kernel headers, or bpftool. Update the orchestrator Dockerfile to include a build stage for CO-RE:
+
+# backend/orchestrator/Dockerfile
+FROM golang:1.21-alpine AS go-build
+RUN apk add --no-cache git build-base
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/orchestrator ./cmd/orchestrator  # adjust path if needed
+
+FROM alpine:3.20 AS ebpf-build
+RUN apk add --no-cache clang llvm bpftools make zstd
+WORKDIR /app
+# bring in templates (bind-mount in compose too)
+COPY ../../bpf-templates /app/bpf-templates
+
+# Optional: pre-build one template to prove toolchain
+RUN make -C /app/bpf-templates/drop_egress_by_cgroup
+
+FROM gcr.io/distroless/base-debian12
+COPY --from=go-build /out/orchestrator /orchestrator
+# Templates come via bind mount at runtime; if you prefer, also copy them:
+# COPY --from=ebpf-build /app/bpf-templates /bpf-templates
+EXPOSE 8081
+ENTRYPOINT ["/orchestrator"]
+
+
+In compose, bind-mount the templates so orchestrator can compile at runtime:
+
+  orchestrator:
+    build: ../../backend/orchestrator
+    env_file: ["../../.env"]
+    depends_on: [bpf-registry, nats]
+    ports: ["8081:8081"]
+    volumes:
+      - ../../bpf-templates:/app/bpf-templates:ro
+
+
+If your render code shells out to make, set:
+
+EBPF_TEMPLATE_DIR=/app/bpf-templates
+
+
+If you still hit “no kernel headers/BTF” in dev: we’re building CO-RE objects that don’t need the host’s headers. Keep clang/llvm+bpftool in the build image, not the host.
+
+2) Start/verify services
+docker compose -f infra/compose/docker-compose.yml up -d bpf-registry orchestrator decision
+curl -s http://localhost:8090/healthz
+curl -s http://localhost:8081/healthz || true   # add if implemented
+curl -s http://localhost:8083/healthz
+
+3) Deploy the local agent to a test host
+Option A — dev container on the host (quickest)
+  local-agent-dev:
+    build: ../../agents/local-agent-go   # or local-agent (Rust) if you chose Rust
+    env_file: ["../../.env"]
+    privileged: true
+    pid: "host"
+    network_mode: "host"
+    depends_on: [bpf-registry, nats]
+
+
+Run:
+
+docker compose -f infra/compose/docker-compose.yml up -d local-agent-dev
+# health (if exposed):
+curl -s http://localhost:7070/healthz || true
+
+Option B — run directly on the host
+sudo ./aegisflux-agent --registry http://bpf-registry:8090 --nats nats://localhost:4222
+
+
+Ensure the agent prints the host_id it resolved and that it can reach the registry & NATS. Keep a shell tailing logs.
+
+4) Create a Plan with ebpf_* control (not nftables)
+
+Two paths:
+
+A) Through the Decision Engine (preferred)
+
+If your Cap 4 prompts are in, the Planner can output an ebpf_mitigate intent when evidence looks like C2/exfil or exploit. Use an inline finding like:
+
+curl -s -X POST :8083/plans -H 'content-type: application/json' -d '{
+  "finding": {
+    "id":"F-E2E-1",
+    "severity":"high",
+    "host_id":"web-01",
+    "evidence":[ "connect:198.51.100.7:443@2025-09-17T12:00:00Z", "exec:/bin/sh@2025-09-17T12:00:03Z" ],
+    "status":"open",
+    "ts":"2025-09-17T12:00:03Z",
+    "context": { "labels": ["env:prod","role:web"] }
+  },
+  "notes":"force ebpf mitigate if supported"
+}' | jq .
+
+
+If your Planner isn’t yet biased to pick eBPF, temporarily add a debug flag the API honors (only in dev):
+
+{
+  "finding": {...},
+  "debug_force_control": {
+    "type":"ebpf_mitigate",
+    "template_hint":"drop_egress_by_cgroup",
+    "params":{"dst_ip":"198.51.100.7","dst_port":443}
+  }
+}
+
+
+Have the /plans handler append this to control_intents before calling the Policy-Writer.
+
+B) Direct orchestrator (smoke)
+
+If you exposed a dev endpoint like /apply/ebpf in orchestrator, post a minimal payload with template + params to trigger render→sign→upload→assign-canary. (Only for smoke testing if the Decision path isn’t ready.)
+
+5) Orchestrator path: render → sign → upload
+
+Watch orchestrator logs while posting the plan. You should see:
+
+“rendering template=drop_egress_by_cgroup …”
+
+“packed artifact … tar.zst (sha256=…)”
+
+“uploaded to registry id=ebpf-YYYY-nnnn sig=…”
+
+Registry checks:
+
+# Confirm the artifact exists (once you implement endpoints)
+curl -s http://localhost:8090/artifacts/{artifact_id} | jq .
+curl -s http://localhost:8090/artifacts/{artifact_id}/binary -o /tmp/artifact.tar.zst
+
+6) Agent path: poll → verify → load → telemetry
+
+Agent should poll /artifacts/for-host/web-01, download the bundle, and:
+
+Verify signature (dev key ok for now)
+
+Extract program.o
+
+Load (XDP/TC/LSM) with params (dst_ip, dst_port, cgroup if used)
+
+Start TTL timer
+
+Emit telemetry:
+
+In your nats sub 'agent.telemetry' window, expect:
+
+{
+  "host_id":"web-01",
+  "artifact_id":"ebpf-2025-0007",
+  "status":"loaded",
+  "drops":0,
+  "errors":0,
+  "cpu_pct":0.00,
+  "verifier_msg":null,
+  "ts":"..."
+}
+
+
+If you simulate matching traffic to 198.51.100.7:443, drops should increment.
+
+7) Canary → enforce (and rollback)
+
+Keep Cap 4 guardrails at canary (Mode=canary; size=1).
+
+If canary telemetry is clean (no 5xx spikes, CPU in bounds), promote to enforce:
+
+Approve in UI or call your Actions/Orchestrator transition endpoint.
+
+Force a rollback test:
+
+Send an orchestrator rollback signal or simulate an SLO breach
+
+Expect agent to unload and emit status:"rolled_back"
+
+8) Expected success criteria (what “done” looks like)
+
+✅ Plan created with ebpf_* control and TTL.
+
+✅ Orchestrator built OK, rendered template, signed + uploaded artifact to registry.
+
+✅ Agent loaded artifact on canary host, sent loaded telemetry, TTL ticking.
+
+✅ Optional: generated drops when you send matching traffic.
+
+✅ Promote to enforce then rollback works; telemetry shows rolled_back.
+
+9) Troubleshooting quick hits
+
+“exec: clang not found” in orchestrator → add clang/llvm to Dockerfile build stage (step 1).
+
+“bpftool not found” → add bpftools (or vendor bpftool).
+
+Agent fails to load / verifier error → print verifier_msg; double-check CO-RE build, maps, and hook type (XDP vs TC). For first pass, prefer TC egress (fewer NIC quirks than XDP).
+
+No artifact pickup → ensure /artifacts/for-host/{host_id} returns the canary assignment; check agent host_id resolution (hostname mismatch is common).
+
+No telemetry → verify NATS URL, subject names, and that agent sends after load attempt (success or error).

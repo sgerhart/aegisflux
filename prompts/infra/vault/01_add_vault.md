@@ -1,0 +1,4 @@
+- Add the Vault service to infra/compose/docker-compose.yml as provided.
+- Create scripts/vault/dev-bootstrap.sh with the content above.
+- Create docs/RUNBOOKS/VAULT_DEV.md with steps to init, put secrets, rotate.
+- Update Makefile: add targets vault-up, vault-bootstrap.

@@ -1,1 +1,27 @@
 default_provider: openai
+routes:
+  planner:
+    provider: openai
+    model: gpt-4o-mini
+    max_tokens: 1800
+    temperature: 0.2
+  policy_writer:
+    provider: local
+    model: qwen2.5-coder-14b
+    endpoint: http://vllm:8000/v1
+    max_tokens: 1200
+    temperature: 0.1
+  segmenter:
+    provider: local
+    model: mixtral-8x7b-instruct
+    endpoint: http://vllm:8000/v1
+    max_tokens: 1200
+    temperature: 0.1
+  explainer:
+    provider: openai
+    model: gpt-4o
+    max_tokens: 800
+    temperature: 0.2
+safety:
+  max_cost_usd_per_hour: 5.0
+  ratelimit_rpm: 60

@@ -1,0 +1,3 @@
+- Add promhttp /metrics; expose counters & gauges.
+- /readyz returns 200 when NATS connected AND loader snapshot loaded.
+- Increment correlator_rules_loaded & correlator_rules_overrides gauges on reload/override changes.

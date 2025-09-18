@@ -227,3 +227,6 @@ class TestWriterIntegration:
         result = await writer.write_event(sample_enriched_event)
         assert result is True
 
+
+
+
